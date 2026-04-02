@@ -1,10 +1,23 @@
 package store
-import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
-type DB struct{*sql.DB}
-type Document struct{ID int64 `json:"id"`;Title string `json:"title"`;FileName string `json:"filename"`;MimeType string `json:"mime_type"`;SizeBytes int64 `json:"size_bytes"`;Tags string `json:"tags"`;Notes string `json:"notes"`;StoragePath string `json:"storage_path"`;CreatedAt time.Time `json:"created_at"`}
-func Open(d string)(*DB,error){os.MkdirAll(d,0755);dsn:=filepath.Join(d,"archivist.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);migrate(db);return &DB{db},nil}
-func migrate(db *sql.DB){db.Exec(`CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,filename TEXT DEFAULT '',mime_type TEXT DEFAULT '',size_bytes INTEGER DEFAULT 0,tags TEXT DEFAULT '',notes TEXT DEFAULT '',storage_path TEXT DEFAULT '',created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)}
-func(db *DB)Create(d *Document)error{res,err:=db.Exec(`INSERT INTO documents(title,filename,mime_type,size_bytes,tags,notes,storage_path)VALUES(?,?,?,?,?,?,?)`,d.Title,d.FileName,d.MimeType,d.SizeBytes,d.Tags,d.Notes,d.StoragePath);if err!=nil{return err};d.ID,_=res.LastInsertId();return nil}
-func(db *DB)List(q string)([]Document,error){base:=`SELECT id,title,filename,mime_type,size_bytes,tags,notes,storage_path,created_at FROM documents WHERE 1=1`;args:=[]interface{}{};if q!=""{base+=` AND (title LIKE ? OR tags LIKE ? OR notes LIKE ?)`;args=append(args,"%"+q+"%","%"+q+"%","%"+q+"%")};base+=` ORDER BY created_at DESC`;rows,err:=db.Query(base,args...);if err!=nil{return nil,err};defer rows.Close();var out[]Document;for rows.Next(){var d Document;rows.Scan(&d.ID,&d.Title,&d.FileName,&d.MimeType,&d.SizeBytes,&d.Tags,&d.Notes,&d.StoragePath,&d.CreatedAt);out=append(out,d)};return out,nil}
-func(db *DB)Delete(id int64){db.Exec(`DELETE FROM documents WHERE id=?`,id)}
-func(db *DB)Stats()(map[string]interface{},error){var total int;var size int64;db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(size_bytes),0) FROM documents`).Scan(&total,&size);return map[string]interface{}{"documents":total,"total_bytes":size},nil}
+import ("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{db *sql.DB}
+type Item struct{
+	ID string `json:"id"`
+	Name string `json:"name"`
+	Description string `json:"description"`
+	Status string `json:"status"`
+	Category string `json:"category"`
+	Tags string `json:"tags"`
+	CreatedAt string `json:"created_at"`
+}
+func Open(d string)(*DB,error){if err:=os.MkdirAll(d,0755);err!=nil{return nil,err};db,err:=sql.Open("sqlite",filepath.Join(d,"archivist.db")+"?_journal_mode=WAL&_busy_timeout=5000");if err!=nil{return nil,err}
+db.Exec(`CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT DEFAULT '',status TEXT DEFAULT 'active',category TEXT DEFAULT '',tags TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')))`)
+return &DB{db:db},nil}
+func(d *DB)Close()error{return d.db.Close()}
+func genID()string{return fmt.Sprintf("%d",time.Now().UnixNano())}
+func now()string{return time.Now().UTC().Format(time.RFC3339)}
+func(d *DB)Create(e *Item)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO items(id,name,description,status,category,tags,created_at)VALUES(?,?,?,?,?,?,?)`,e.ID,e.Name,e.Description,e.Status,e.Category,e.Tags,e.CreatedAt);return err}
+func(d *DB)Get(id string)*Item{var e Item;if d.db.QueryRow(`SELECT id,name,description,status,category,tags,created_at FROM items WHERE id=?`,id).Scan(&e.ID,&e.Name,&e.Description,&e.Status,&e.Category,&e.Tags,&e.CreatedAt)!=nil{return nil};return &e}
+func(d *DB)List()[]Item{rows,_:=d.db.Query(`SELECT id,name,description,status,category,tags,created_at FROM items ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Item;for rows.Next(){var e Item;rows.Scan(&e.ID,&e.Name,&e.Description,&e.Status,&e.Category,&e.Tags,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM items WHERE id=?`,id);return err}
+func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM items`).Scan(&n);return n}
