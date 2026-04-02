@@ -21,5 +21,23 @@ func now()string{return time.Now().UTC().Format(time.RFC3339)}
 func(d *DB)Create(e *Document)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO documents(id,title,filename,mime_type,size_bytes,folder,tags,notes,created_at)VALUES(?,?,?,?,?,?,?,?,?)`,e.ID,e.Title,e.Filename,e.MimeType,e.SizeBytes,e.Folder,e.Tags,e.Notes,e.CreatedAt);return err}
 func(d *DB)Get(id string)*Document{var e Document;if d.db.QueryRow(`SELECT id,title,filename,mime_type,size_bytes,folder,tags,notes,created_at FROM documents WHERE id=?`,id).Scan(&e.ID,&e.Title,&e.Filename,&e.MimeType,&e.SizeBytes,&e.Folder,&e.Tags,&e.Notes,&e.CreatedAt)!=nil{return nil};return &e}
 func(d *DB)List()[]Document{rows,_:=d.db.Query(`SELECT id,title,filename,mime_type,size_bytes,folder,tags,notes,created_at FROM documents ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Document;for rows.Next(){var e Document;rows.Scan(&e.ID,&e.Title,&e.Filename,&e.MimeType,&e.SizeBytes,&e.Folder,&e.Tags,&e.Notes,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Update(e *Document)error{_,err:=d.db.Exec(`UPDATE documents SET title=?,filename=?,mime_type=?,size_bytes=?,folder=?,tags=?,notes=? WHERE id=?`,e.Title,e.Filename,e.MimeType,e.SizeBytes,e.Folder,e.Tags,e.Notes,e.ID);return err}
 func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM documents WHERE id=?`,id);return err}
 func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM documents`).Scan(&n);return n}
+
+func(d *DB)Search(q string, filters map[string]string)[]Document{
+    where:="1=1"
+    args:=[]any{}
+    if q!=""{
+        where+=" AND (title LIKE ?)"
+        args=append(args,"%"+q+"%");
+    }
+    rows,_:=d.db.Query(`SELECT id,title,filename,mime_type,size_bytes,folder,tags,notes,created_at FROM documents WHERE `+where+` ORDER BY created_at DESC`,args...)
+    if rows==nil{return nil};defer rows.Close()
+    var o []Document;for rows.Next(){var e Document;rows.Scan(&e.ID,&e.Title,&e.Filename,&e.MimeType,&e.SizeBytes,&e.Folder,&e.Tags,&e.Notes,&e.CreatedAt);o=append(o,e)};return o
+}
+
+func(d *DB)Stats()map[string]any{
+    m:=map[string]any{"total":d.Count()}
+    return m
+}
